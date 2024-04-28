@@ -18,12 +18,14 @@ class SiteStatsNotFound(Exception):
 
 class SiteStatsDaoRedis(SiteStatsDaoBase, RedisDaoBase):
     """Persists and queries SiteStats in Redis."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.compare_and_update_script = CompareAndUpdateScript(self.redis)
 
-    def find_by_id(self, site_id: int, day: datetime.datetime = None,
-                   **kwargs) -> SiteStats:
+    def find_by_id(
+        self, site_id: int, day: datetime.datetime = None, **kwargs
+    ) -> SiteStats:
         if day is None:
             day = datetime.datetime.now()
 
@@ -53,24 +55,60 @@ class SiteStatsDaoRedis(SiteStatsDaoBase, RedisDaoBase):
         if not max_capacity or reading.current_capacity > float(max_capacity):
             self.redis.hset(key, SiteStats.MAX_CAPACITY, reading.wh_generated)
 
-    def _update_optimized(self, key: str, meter_reading: MeterReading,
-                          pipeline: redis.client.Pipeline = None) -> None:
+    def _update_optimized(
+        self,
+        key: str,
+        meter_reading: MeterReading,
+        pipeline: redis.client.Pipeline = None,
+    ) -> None:
         execute = False
         if pipeline is None:
             pipeline = self.redis.pipeline()
+
             execute = True
 
         # START Challenge #3
-        # END Challenge #3
+
+        # start for block of max wattage
+
+        pipeline.multi()
+        max_wh = self.redis.hget(key, SiteStats.MAX_WH)
+        if not max_wh or meter_reading.wh_generated > float(max_wh):
+            self.redis.hset(key, SiteStats.MAX_WH, meter_reading.wh_generated)
+
+        min_wh = self.redis.hget(key, SiteStats.MIN_WH)
+        if not min_wh or meter_reading.wh_generated < float(min_wh):
+            self.redis.hset(key, SiteStats.MIN_WH, meter_reading.wh_generated)
+
+        max_capacity = self.redis.hget(key, SiteStats.MAX_CAPACITY)
+        if not max_capacity or meter_reading.current_capacity > float(max_capacity):
+            self.redis.hset(key, SiteStats.MAX_CAPACITY, meter_reading.wh_generated)
+
+        # set the last reporting time
+
+        self.redis.hset(
+            key, SiteStats.LAST_REPORTING_TIME, datetime.datetime.utcnow().isoformat()
+        )
+
+        # set the meter reading count
+
+        self.redis.hincrby(key, SiteStats.COUNT, 1)
+
+        pipeline.execute()
 
         if execute:
             pipeline.execute()
 
+        # stop for block of max capacity
+
+        # END Challenge #3
+
     def update(self, meter_reading: MeterReading, **kwargs) -> None:
-        key = self.key_schema.site_stats_key(meter_reading.site_id,
-                                             meter_reading.timestamp)
+        key = self.key_schema.site_stats_key(
+            meter_reading.site_id, meter_reading.timestamp
+        )
         # Remove for Challenge #3
-        self._update_basic(key, meter_reading)
+        self._update_optimized(key, meter_reading)
 
         # Uncomment the following two lines for Challenge #3
         # pipeline = kwargs.get('pipeline')
