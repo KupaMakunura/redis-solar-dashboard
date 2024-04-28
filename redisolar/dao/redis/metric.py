@@ -156,6 +156,8 @@ class MetricDaoRedis(MetricDaoBase, RedisDaoBase):
         self.redis.zadd(
             metric_key, {f"{value:.2f}:{minute_of_day}": timestamp.timestamp()}
         )
+        
+        self.redis.expire(metric_key, METRIC_EXPIRATION_SECONDS)
 
         # END Challenge #2
 
