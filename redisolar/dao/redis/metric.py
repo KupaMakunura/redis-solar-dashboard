@@ -2,6 +2,7 @@ import datetime
 from collections import deque
 from typing import List, Deque
 
+import pip
 import redis
 
 from redisolar.dao.base import MetricDaoBase
@@ -151,15 +152,14 @@ class MetricDaoRedis(MetricDaoBase, RedisDaoBase):
         minute_of_day = self._get_day_minute(time)  # pylint: disable=unused-variable
 
         # START Challenge #2
-        timestamp = self._get_date_from_day_minute(time, minute_of_day)
 
-        self.redis.zadd(
-            metric_key, {f"{value:.2f}:{minute_of_day}": timestamp.timestamp()}
+
+        pipeline.zadd(
+            metric_key, {str(MeasurementMinute(value, minute_of_day)): minute_of_day}
         )
-        
-        self.redis.expire(metric_key, METRIC_EXPIRATION_SECONDS)
+        pipeline.expire(metric_key, METRIC_EXPIRATION_SECONDS)
 
-        # END Challenge #2
+    # END Challenge #2
 
     def get_recent(
         self,
